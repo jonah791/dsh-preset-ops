@@ -3,3 +3,7 @@ lib/
 build.log
 *.log
 _tmp/
+
+*.tsbuildinfo
+*.bak
+*.bak-*

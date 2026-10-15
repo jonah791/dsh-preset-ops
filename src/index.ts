@@ -17,11 +17,11 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFile, readFile, readdir, stat } from 'node:fs/promises'
+import { copyFile, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import {
   childEnv, classifyFailure, diffCommand, dualWriteReport, flattenOrder, gateVerdict, gitCommand,
-  headLines, joinPath, parseAssemble, parseDiffJson, parseVerify, pickBaseline, resolvePaths,
-  stepCommand, tailLines,
+  headLines, joinPath, parseAssemble, parseDiffJson, parseVerify, patchTopLevelName, patchVerifyRef,
+  pickBaseline, resolvePaths, stepCommand, tailLines,
 } from './runner.js'
 import type { Cmd, FailureKind, GateStep, Step } from './runner.js'
 
@@ -439,44 +439,87 @@ export function apply(ctx: Context, config: Config): void {
         return { ok: false, dryRun, refused: `版本号形态不对（要 主.次，如 3.4）：收到 ${args.version}`, verifyHead: '', plan: [], done: [], error: '' }
       }
       const newBaseline = joinPath(p.workspaceRoot, `色欲之罪V${ver}.json`)
+      const newName = `色欲之罪V${ver}`
+      const skeletonPath = joinPath(p.presetDir, 'skeleton.json')
+      const verifyPath = joinPath(p.presetDir, 'verify.py')
+      const msg = args.message || `V${ver}`
       const plan = [
-        `verify 前置门: python verify.py（未过即拒绝）`,
-        `同步: ${p.productJson} → ${newBaseline}`,
-        `同步: ${p.productJson} → ${p.runtimeJson}`,
-        `git add -A && git commit -m "${args.message || 'V' + ver}"`,
-        `git tag -f v${ver} -m "${args.message || 'V' + ver}"`,
+        `① skeleton 顶层 name → ${newName}（已一致则跳过）→ build 重建产物`,
+        `② 同步: ${p.productJson} → ${newBaseline}`,
+        `③ 同步: ${p.productJson} → ${p.runtimeJson}`,
+        `④ 同步 verify.py 的 DEFAULT_REF → ${newBaseline}（硬编码常量，此前靠人手改）`,
+        `⑤ 后验门: python verify.py（参照已指向新基准 ⇒ 应绿；未过即拒绝，已同步文件保留但不 commit）`,
+        `git add -A && git commit -m "${msg}"`,
+        `git tag -f v${ver} -m "${msg}"`,
         `（不 push：本项目只做本地仓库）`,
       ]
-      let verifyHead = ''
-      if (!args.skipVerify) {
-        const cmd = stepCommand(p, 'verify')
-        const r = await runStep(cmd, config.timeoutMs, String(cmd.argv[0]))
-        verifyHead = parseVerify(r.stdout).conclusion || tailLines(r.stdout + r.stderr, 6)
-        if (r.code !== 0) {
-          return { ok: false, dryRun, refused: `verify.py 退出码 ${r.code}（${r.kind}${r.hint ? '：' + r.hint : ''}）——先让校验变绿再发布`, verifyHead, plan, done: [], error: '' }
-        }
-      }
       if (!(await exists(p.productJson))) {
-        return { ok: false, dryRun, refused: 'build 产物不存在：先跑 preset_gate 的 build', verifyHead, plan, done: [], error: '' }
+        return { ok: false, dryRun, refused: 'build 产物不存在：先跑 preset_gate 的 build', verifyHead: '', plan, done: [], error: '' }
       }
-      if (dryRun) return { ok: true, dryRun: true, refused: '', verifyHead, plan, done: [], error: '' }
+      if (dryRun) return { ok: true, dryRun: true, refused: '', verifyHead: '（后验门只在真跑时执行）', plan, done: [], error: '' }
 
       const done: string[] = []
       try {
+        // ① skeleton 顶层 name（块内 name 一律不动；没匹配到就中止，别把「没找到」当「已是」）
+        const skelText = await readFile(skeletonPath, 'utf8')
+        const skelNext = patchTopLevelName(skelText, newName)
+        if (skelNext !== skelText) {
+          await writeFile(skeletonPath, skelNext, 'utf8')
+          done.push(`skeleton 顶层 name → ${newName}`)
+        } else if (skelText.includes(`  "name": "${newName}",`)) {
+          done.push(`skeleton 顶层 name 已是 ${newName}（跳过）`)
+        } else {
+          throw new Error('skeleton.json 顶层 name 未匹配到（格式可能变了）——已中止，未做写入')
+        }
+        // build 是幂等的：name 变过就必须重建，没变也顺带保证产物新鲜
+        const b = await run(stepCommand(p, 'build'), config.timeoutMs)
+        if (b.code !== 0) throw new Error('build 失败: ' + tailLines(b.stdout + b.stderr, 4))
+        done.push('build 重建产物')
+
+        // ②③ 基准 + 运行版
         await copyFile(p.productJson, newBaseline)
         done.push('同步基准: ' + newBaseline)
         await copyFile(p.productJson, p.runtimeJson)
         done.push('同步运行版: ' + p.runtimeJson)
-        const msg = args.message || `V${ver}`
+
+        // ④ verify.py 参照（这一步以前靠人手，漏了就会「发布后 verify 一直红」）
+        const vText = await readFile(verifyPath, 'utf8')
+        const vNext = patchVerifyRef(vText, newBaseline)
+        if (vNext !== vText) {
+          await writeFile(verifyPath, vNext, 'utf8')
+          done.push('同步 verify.py DEFAULT_REF → 新基准')
+        } else if (vText.includes(`DEFAULT_REF = '${newBaseline}'`)) {
+          done.push('verify.py DEFAULT_REF 已指向新基准（跳过）')
+        } else {
+          throw new Error('verify.py 的 DEFAULT_REF 未匹配到（格式可能变了）')
+        }
+
+        // ⑤ 后验门：参照已同步，这里的红才是真红
+        let verifyHead = ''
+        if (args.skipVerify) {
+          done.push('后验门已跳过（skipVerify）')
+        } else {
+          const r = await runStep(stepCommand(p, 'verify'), config.timeoutMs, 'verify.py')
+          verifyHead = parseVerify(r.stdout).conclusion || tailLines(r.stdout + r.stderr, 6)
+          if (r.code !== 0) {
+            done.push(`后验门未过：verify 退出码 ${r.code}——同步已做但**未 commit**，修好后重跑本工具`)
+            return { ok: false, dryRun: false, refused: `后验门未过：verify.py 退出码 ${r.code}（${r.kind}${r.hint ? '：' + r.hint : ''}）`, verifyHead, plan, done, error: '' }
+          }
+          done.push('后验门通过: verify exit 0')
+        }
+
         const a = await run(gitCommand(p, ['add', '-A']), config.timeoutMs)
         if (a.code !== 0) throw new Error('git add 失败: ' + (a.stderr || a.stdout))
         const c = await run(gitCommand(p, ['commit', '-m', msg]), config.timeoutMs)
-        done.push('commit: ' + (c.stdout.split('\n')[0] || c.stderr.trim()))
+        const cOut = String(c.stdout + c.stderr)
+        if (c.code === 0) done.push('commit: ' + (c.stdout.split('\n')[0] || ''))
+        else if (/nothing to commit|working tree clean|无文件要提交/i.test(cOut)) done.push('无内容变更，跳过 commit')
+        else throw new Error('git commit 失败: ' + cOut.trim().slice(0, 200))
         const t = await run(gitCommand(p, ['tag', '-f', `v${ver}`, '-m', msg]), config.timeoutMs)
         done.push(t.code === 0 ? `tag v${ver} 已打` : 'tag 失败: ' + t.stderr.trim())
         return { ok: true, dryRun: false, refused: '', verifyHead, plan, done, error: '' }
       } catch (e) {
-        return { ok: false, dryRun: false, refused: '', verifyHead, plan, done, error: String((e as Error)?.message ?? e) }
+        return { ok: false, dryRun: false, refused: '', verifyHead: '', plan, done, error: String((e as Error)?.message ?? e) }
       }
     },
   }))

@@ -71,6 +71,22 @@ export function pickBaseline(names: string[], runtimeName = '色欲之罪.json')
   return scored[0]?.name ?? runtimeName
 }
 
+/**
+ * 只改 skeleton.json 的**顶层** `name`（缩进 2 空格的 `  "name": "..."`）。
+ * 块内的 name（缩进 ≥4 空格）一律不动；没匹配到时**原样返回**（调用方须自行校验，别把「没找到」当成「已是」）。
+ */
+export function patchTopLevelName(skeletonText: string, newName: string): string {
+  return skeletonText.replace(/^ {2}"name": "[^"]*",/m, '  "name": "' + newName + '",')
+}
+
+/**
+ * 同步 verify.py 的 `DEFAULT_REF = '...'`（**硬编码常量**——技能 §4 的第 ③ 步，此前每次发布靠人手改）。
+ * 没匹配到时原样返回（调用方须自行校验）。
+ */
+export function patchVerifyRef(verifyText: string, newRef: string): string {
+  return verifyText.replace(/^DEFAULT_REF = '[^']*'/m, "DEFAULT_REF = '" + newRef + "'")
+}
+
 export function resolvePaths(input: PathInput): Paths {
   const presetDir = normDir(input.presetDir)
   const workspaceRoot = normDir(input.workspaceRoot)
