@@ -1,8 +1,42 @@
+<!--
+  DSH 插件生态公约声明（plugin-ecosystem-convention · 组合优先/声明清晰/兼容优先）
+  purpose: 预设工程流程助手：状态体检 / 构建验证闸门 / 逐字段比对 / 位格度量 / 发布同步（配合技能 tavern-preset-iteration）
+  inject: ['tools']
+  tools: preset_status,preset_gate,preset_diff,preset_metrics,preset_release
+  runtime: host-only
+  envDeps: 见 README「配置」节
+  boundary: 见 README「设计要点」与「生效判据与回退」节
+  compat: cordis ^4.0.1 / dsh-tools >=0.1.0-rc.6
+-->
 # dsh-preset-ops
+
+<p align="center">
+  <a href="https://github.com/jonah791/dsh-preset-ops"><img src="https://img.shields.io/badge/version-0.1.0-blue" alt="version"></a>
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6" alt="TypeScript">
+  <img src="https://img.shields.io/badge/tests-18%20passed-brightgreen" alt="tests">
+</p>
 
 预设工程流程助手——把「色欲之罪预设」的创作与迭代流程（技能 `tavern-preset-iteration` 里的五态状态机）做成工具，让流程不靠记忆。
 
 **它不写预设内容**：内容只从 `source.md` 进、产物只从 `build.py` 出。插件只搬动事实与判据。
+
+## 快速开始
+
+**1) 装依赖**（在目标 profile 的 `package.json` 加 link 依赖）：
+
+```jsonc
+"dsh-preset-ops": "link:E:/alice/self-plugins/dsh-preset-ops"
+```
+
+**2) 挂组合**：
+
+```yaml
+- id: dsh-preset-ops
+  name: dsh-preset-ops
+```
+
+**3) 30 秒验证**：`preset_status` → 应报产物/基准/运行版三处 md5 是否一致
 
 ## 五个工具
 
@@ -47,3 +81,11 @@ node --test "tests/*.test.mjs"                                     # 15 项离�
 `src/runner.ts` 是纯逻辑层（路径/命令/解析/失败归类，无 I/O），`src/index.ts` 只接线。
 判据纪律：**通过与否以退出码为准**，文本解析只服务展示；失败分「跑不动」（解释器缺失/超时/脚本不存在）与「跑了没过」两类，前者即停不掩盖。
 详细契约与可证伪验收表见 `docs/semantic.md`。
+
+## 测试
+
+```bash
+cd self-plugins/dsh-preset-ops && npm test
+```
+
+**18 条用例**（跑一次得到）。
