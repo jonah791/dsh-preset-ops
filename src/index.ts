@@ -120,6 +120,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'preset_status',
+    deferLoading: true,
     description: '预设体检（只读，零副作用）：产物/基准/运行版三处 md5 是否一致、块数与启用态双写是否自洽、启用内容字符数、git 是否干净与最新 tag。用于任何改动前后确认"现在是什么状态"。',
     parameters: {
       baseline: { type: 'string', description: '基准产物文件名或绝对路径（缺省=扫描工作区里版本号最高的 色欲之罪V*.json）' },
@@ -236,6 +237,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'preset_gate',
+    deferLoading: true,
     description: 'S4 验证闸门：按序跑 build.py → verify.py → assemble.py（可用 steps 收窄）。裁决只看退出码；失败时报「断在哪一步 + 属于哪类失败（脚本问题/解释器缺失/超时/假红）」。构建产物通过 build.py 生成，不直接改 json。',
     parameters: {
       steps: { type: 'array', description: '要跑的步骤子集（缺省 build,verify,assemble）' },
@@ -285,6 +287,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'preset_diff',
+    deferLoading: true,
     description: 'S4-4 逐字段比对两版预设 json，输出「有改动的块」清单（含字符增减、字段变动、顺序与 extensions 变化）。用于重构后证明"只改了该改的"——主人的措辞与词料不许被顺手动过。',
     parameters: {
       old: { type: 'string', description: '旧/参照 json（缺省=基准产物）' },
@@ -361,6 +364,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'preset_metrics',
+    deferLoading: true,
     description: '度量：位格统计（slots，词表唯一真源在 slot_stats.py）/ 思考链注意力预算（attention）/ 酒馆实测取证（forensics，含基准现算与词表指纹）。返回每项的退出码与关键行——百分比结论必须连同"由哪张词表、哪个切分得到"一起读。',
     parameters: {
       kind: { type: 'string', description: 'slots | attention | forensics | all（缺省 all）' },
@@ -402,6 +406,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'preset_release',
+    deferLoading: true,
     description: 'S5 发布：三处同步（产物 → 新基准文件 + 运行版）+ git commit/tag。默认干跑（dryRun=true）只报计划；verify.py 未过一律拒绝执行。不 push（本项目不开源，只做本地仓库）。',
     parameters: {
       version: { type: 'string', required: true, description: '新版本号（如 3.4 → 色欲之罪V3.4.json）' },
